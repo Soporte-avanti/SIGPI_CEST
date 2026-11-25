@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const multer = require('multer');
-const { query, tx, audit } = require('../db');
+const { query, tx, audit, HOY, hoyISO } = require('../db');
 const { esGestion, puedeEditar, puedeReportar, puedeValidar } = require('../auth');
 
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 4);
@@ -15,8 +15,8 @@ const SITUACION = `
     WHEN a.cerrada THEN 'cerrada'
     WHEN a.estado = 'completada' THEN 'completada'
     WHEN a.estado = 'suspendida' THEN 'suspendida'
-    WHEN a.fecha_termino < current_date THEN 'atrasada'
-    WHEN a.fecha_termino <= current_date + 7 THEN 'por_vencer'
+    WHEN a.fecha_termino < ${HOY} THEN 'atrasada'
+    WHEN a.fecha_termino <= ${HOY} + 7 THEN 'por_vencer'
     ELSE a.estado
   END`;
 
@@ -32,6 +32,7 @@ const BASE_SELECT = `
          (SELECT count(*)::int FROM evidencias e WHERE e.accion_id = a.id) AS n_evidencias,
          (SELECT count(*)::int FROM avances v WHERE v.accion_id = a.id) AS n_avances,
          (SELECT count(*)::int FROM avances v WHERE v.accion_id = a.id AND v.validacion = 'pendiente') AS n_pendientes,
+         (SELECT v.descripcion FROM avances v WHERE v.accion_id = a.id ORDER BY v.fecha DESC LIMIT 1) AS ultimo_avance,
          COALESCE((SELECT json_agg(json_build_object('id', c.area_id, 'sigla', x.sigla, 'nombre', x.nombre) ORDER BY x.orden)
                      FROM accion_colaboradoras c JOIN areas x ON x.id = c.area_id WHERE c.accion_id = a.id), '[]') AS colaboradoras
     FROM acciones a
@@ -254,7 +255,7 @@ router.post('/acciones/:id/avances', async (req, res) => {
     await cl.query(
       `UPDATE acciones SET estado=$1, porcentaje=$2, ultima_actualizacion=now(),
          medidas_correctivas = COALESCE($3, medidas_correctivas),
-         fecha_cierre = CASE WHEN $1 = 'completada' THEN COALESCE(fecha_cierre, current_date) ELSE NULL END
+         fecha_cierre = CASE WHEN $1 = 'completada' THEN COALESCE(fecha_cierre, ${HOY}) ELSE NULL END
        WHERE id=$4`, [estado, porcentaje, medidas, a.id]);
     return v.id;
   });
@@ -301,7 +302,7 @@ router.post('/acciones/:id/cerrar', async (req, res) => {
   const resultado = txt(req.body.resultado);
   if (!resultado) return res.status(400).json({ error: 'Registra el resultado obtenido antes de cerrar' });
   const estado = req.body.estado === 'cancelada' ? 'cancelada' : 'completada';
-  const fecha = dateOrNull(req.body.fecha_cierre) || a.fecha_cierre || new Date().toISOString().slice(0, 10);
+  const fecha = dateOrNull(req.body.fecha_cierre) || a.fecha_cierre || hoyISO();
   if (estado === 'completada' && a.n_evidencias === 0 && !req.body.sin_evidencia) {
     return res.status(400).json({ error: 'La acción no tiene evidencias asociadas. Adjunta al menos una o confirma el cierre sin evidencia.', requiere_confirmacion: true });
   }

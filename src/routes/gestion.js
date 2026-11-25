@@ -153,6 +153,42 @@ router.post('/usuarios', requireRol(...ADMIN_USUARIOS), async (req, res) => {
   }
 });
 
+// Importación masiva de usuarios (filas ya interpretadas desde CSV en el navegador)
+const norm = (v) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const ROL_ALIAS = {
+  rectoria: 'rectoria', rector: 'rectoria', rectora: 'rectoria',
+  encargado_pme: 'encargado_pme', 'encargado pme': 'encargado_pme', pme: 'encargado_pme',
+  coordinador: 'coordinador', coordinadora: 'coordinador', coordinacion: 'coordinador', 'coordinacion de area': 'coordinador',
+  responsable: 'responsable', 'responsable de informacion': 'responsable',
+  usuario: 'usuario', 'usuario institucional': 'usuario', '': 'usuario',
+};
+router.post('/usuarios/importar', requireRol(...ADMIN_USUARIOS), async (req, res) => {
+  const filas = Array.isArray(req.body.filas) ? req.body.filas.slice(0, 300) : [];
+  const { rows: areas } = await query('SELECT id, sigla, nombre FROM areas');
+  const resultado = { creados: [], errores: [] };
+  for (let i = 0; i < filas.length; i++) {
+    const f = filas[i];
+    const nombre = txt(f.nombre, 120);
+    const email = (txt(f.email || f.correo, 160) || '').toLowerCase();
+    const rol = ROL_ALIAS[norm(f.rol)];
+    const a = areas.find((x) => norm(x.sigla) === norm(f.area) || norm(x.nombre) === norm(f.area));
+    if (!nombre || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { resultado.errores.push({ fila: i + 2, error: 'Nombre o correo inválido' }); continue; }
+    if (!rol) { resultado.errores.push({ fila: i + 2, error: `Rol desconocido: ${f.rol}` }); continue; }
+    if (f.area && !a) { resultado.errores.push({ fila: i + 2, error: `Área desconocida: ${f.area}` }); continue; }
+    if (['coordinador', 'responsable'].includes(rol) && !a) { resultado.errores.push({ fila: i + 2, error: 'Coordinación y Responsable requieren área' }); continue; }
+    const clave = claveTemporal();
+    try {
+      await query(`INSERT INTO usuarios (nombre, email, password_hash, rol, area_id, cargo, debe_cambiar_clave) VALUES ($1,$2,$3,$4,$5,$6,TRUE)`,
+        [nombre, email, await bcrypt.hash(clave, 10), rol, a ? a.id : null, txt(f.cargo, 120)]);
+      resultado.creados.push({ nombre, email, rol: ROLES[rol], area: a ? a.sigla : '', clave_temporal: clave });
+    } catch (e) {
+      resultado.errores.push({ fila: i + 2, error: e.code === '23505' ? `Ya existe un usuario con ${email}` : e.message });
+    }
+  }
+  audit(req.user.id, 'importar_usuarios', 'usuario', null, { creadas: resultado.creados.length, errores: resultado.errores.length });
+  res.json(resultado);
+});
+
 router.put('/usuarios/:id', requireRol(...ADMIN_USUARIOS), async (req, res) => {
   const { rows: [u] } = await query('SELECT * FROM usuarios WHERE id = $1', [req.params.id]);
   if (!u) return res.status(404).json({ error: 'Usuario no encontrado' });
@@ -171,7 +207,7 @@ router.post('/usuarios/:id/restablecer', requireRol(...ADMIN_USUARIOS), async (r
   if (!u) return res.status(404).json({ error: 'Usuario no encontrado' });
   if (u.rol === 'admin' && req.user.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede restablecer administradores' });
   const clave = claveTemporal();
-  await query('UPDATE usuarios SET password_hash=$1, debe_cambiar_clave=TRUE WHERE id=$2', [await bcrypt.hash(clave, 10), u.id]);
+  await query('UPDATE usuarios SET password_hash=$1, debe_cambiar_clave=TRUE, clave_cambiada=now() WHERE id=$2', [await bcrypt.hash(clave, 10), u.id]);
   audit(req.user.id, 'restablecer_clave', 'usuario', u.id);
   res.json({ clave_temporal: clave });
 });

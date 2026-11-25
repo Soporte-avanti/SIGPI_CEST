@@ -1,6 +1,6 @@
 {
   "name": "sigpi-cest",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "SIGPI · Sistema Integral de Gestión Preventiva e Inteligencia Institucional — Centro Educativo Salesianos Talca",
   "main": "server.js",
   "type": "commonjs",
@@ -13,7 +13,10 @@
     "migrate": "node scripts/migrate.js",
     "seed:demo": "node scripts/seed-demo.js",
     "reset": "node scripts/reset.js",
-    "reset:demo": "node scripts/reset.js --si && node scripts/seed-demo.js"
+    "reset:demo": "node scripts/reset.js --si && node scripts/seed-demo.js",
+    "respaldo": "node scripts/respaldo.js",
+    "restaurar": "node scripts/restaurar.js",
+    "test": "node --test --test-concurrency=1 tests/api.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -21,7 +24,7 @@
     "dotenv": "^16.4.5",
     "express": "^5.3.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.5.0",
     "pg": "^8.13.1"
   }
 }

@@ -19,10 +19,14 @@ const NAV = [
   { h: '#/acciones', t: 'Acciones PME', i: 'list' },
   { h: '#/validacion', t: 'Validación', i: 'shield', when: () => ctx.puedeValidar(), badge: true },
   { h: '#/indicadores', t: 'Indicadores (KPI)', i: 'chart' },
+  { h: '#/reporte', t: 'Reporte por área', i: 'print' },
   { sec: 'Institución' },
   { h: '#/capacitacion', t: 'Capacitación', i: 'school' },
   { h: '#/admin', t: 'Usuarios y catálogos', i: 'settings', when: () => ctx.esGestion() },
   { h: '#/auditoria', t: 'Bitácora', i: 'history', when: () => ctx.esGestion() },
+  { h: '#/sistema', t: 'Sistema', i: 'database', when: () => ctx.esGestion() },
+  { sec: 'Soporte' },
+  { h: '#/ayuda', t: 'Ayuda', i: 'help' },
 ];
 
 const ROUTES = [
@@ -35,6 +39,9 @@ const ROUTES = [
   [/^#\/capacitacion\/(\d+)$/, () => import('./views/capacitacion.js'), 'detalle'],
   [/^#\/admin$/, () => import('./views/admin.js')],
   [/^#\/auditoria$/, () => import('./views/admin.js'), 'auditoria'],
+  [/^#\/sistema$/, () => import('./views/sistema.js')],
+  [/^#\/ayuda$/, () => import('./views/ayuda.js')],
+  [/^#\/reporte$/, () => import('./views/reporte.js')],
 ];
 
 const root = $('#root');
@@ -61,7 +68,7 @@ function renderLogin() {
         <label class="f">Contraseña<input name="password" type="password" required autocomplete="current-password"></label>
         <div class="err-msg" id="lerr"></div>
         <button class="btn primary" type="submit">Entrar</button>
-        <p class="small faint">¿Olvidaste tu contraseña? Solicita a Rectoría o al Encargado PME que la restablezca.</p>
+        <p class="small faint"><a href="#" id="olvide">¿Olvidaste tu contraseña?</a></p>
       </form>
     </section>
   </div>`;
@@ -69,6 +76,50 @@ function renderLogin() {
     e.preventDefault();
     const b = e.submitter; b.disabled = true; $('#lerr').textContent = '';
     try { await api.post('/api/auth/login', formData(e.target)); await boot(); } catch (err) { $('#lerr').textContent = err.message; } finally { b.disabled = false; }
+  });
+  $('#olvide').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const cfg = await api.get('/api/auth/config').catch(() => ({ correo: false }));
+    if (!cfg.correo) {
+      modal({ title: 'Recuperar contraseña', size: 'sm', body: '<p class="muted">Solicita a Rectoría o al Encargado PME que te generen una contraseña temporal desde Usuarios y catálogos.</p>', foot: '<button class="btn primary" data-close>Entendido</button>' });
+      return;
+    }
+    const m = modal({
+      title: 'Recuperar contraseña', size: 'sm',
+      body: `<form id="frec" class="stack"><p class="muted">Te enviaremos un enlace para definir una nueva contraseña. Vale por 1 hora.</p>
+        <label class="f">Correo institucional<input name="email" type="email" required value="${esc($('[name=email]').value)}"></label></form>`,
+      foot: '<button class="btn" data-close>Cancelar</button><button class="btn primary" form="frec">Enviar enlace</button>',
+    });
+    $('#frec', m.el).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const r = await run(ev.submitter, () => api.post('/api/auth/recuperar', formData(ev.target)));
+      m.close(); toast(r.mensaje);
+    });
+  });
+}
+
+function renderRestablecer(token) {
+  root.innerHTML = `<div class="login" style="grid-template-columns:1fr"><section class="login-form">
+    <form id="frs" autocomplete="off">
+      <div class="brand" style="padding:0"><div class="brand-mark">SG</div><div><b>SIGPI</b><small>Salesianos Talca</small></div></div>
+      <div><h1>Nueva contraseña</h1><p class="muted" style="margin-top:6px">Define una contraseña de al menos 8 caracteres.</p></div>
+      <label class="f">Nueva contraseña<input type="password" name="nueva" minlength="8" required autocomplete="new-password"></label>
+      <label class="f">Repite la contraseña<input type="password" name="repite" minlength="8" required autocomplete="new-password"></label>
+      <div class="err-msg" id="rerr"></div>
+      <button class="btn primary" type="submit">Guardar contraseña</button>
+      <p class="small faint"><a href="#" id="volver">Volver al inicio de sesión</a></p>
+    </form></section></div>`;
+  $('#volver').addEventListener('click', (e) => { e.preventDefault(); history.replaceState(null, '', location.pathname); renderLogin(); });
+  $('#frs').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = formData(e.target);
+    if (d.nueva !== d.repite) { $('#rerr').textContent = 'Las contraseñas no coinciden'; return; }
+    try {
+      await api.post('/api/auth/restablecer', { token, nueva: d.nueva });
+      history.replaceState(null, '', location.pathname);
+      toast('Contraseña actualizada. Ya puedes ingresar.');
+      renderLogin();
+    } catch (err) { $('#rerr').textContent = err.message; }
   });
 }
 
@@ -103,6 +154,7 @@ function renderShell() {
   $('#menu').onclick = () => $('#app').classList.toggle('open');
   $('#out').onclick = async () => { await api.post('/api/auth/logout'); location.hash = ''; boot(); };
   $('#pwd').onclick = () => cambiarClave(false);
+  $('#pwd').title = 'Mi cuenta: contraseña y avisos';
   refreshBadge();
 }
 
@@ -120,8 +172,14 @@ function cambiarClave(obligatorio) {
         <label class="f">Contraseña actual<input type="password" name="actual" required autocomplete="current-password"></label>
         <label class="f">Nueva contraseña <span class="help">Mínimo 8 caracteres</span><input type="password" name="nueva" minlength="8" required autocomplete="new-password"></label>
         <label class="f">Repite la nueva contraseña<input type="password" name="repite" minlength="8" required autocomplete="new-password"></label>
-      </form>`,
+      </form>
+      ${obligatorio ? '' : `<hr><label class="check"><input type="checkbox" id="avisos" ${ctx.user.recibe_avisos !== false ? 'checked' : ''}>Recibir avisos por correo sobre mis acciones y validaciones</label>`}`,
     foot: `${obligatorio ? '' : '<button class="btn" data-close>Cancelar</button>'}<button class="btn primary" form="fpwd">Guardar</button>`,
+  });
+  $('#avisos', m.el)?.addEventListener('change', async (e) => {
+    await run(null, () => api.put('/api/auth/preferencias', { recibe_avisos: e.target.checked }));
+    ctx.user.recibe_avisos = e.target.checked;
+    toast(e.target.checked ? 'Avisos por correo activados' : 'Avisos por correo desactivados');
   });
   $('#fpwd', m.el).addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -160,6 +218,8 @@ async function route() {
 }
 
 async function boot() {
+  const mr = location.hash.match(/^#\/restablecer\?token=([a-f0-9]{64})$/);
+  if (mr) return renderRestablecer(mr[1]);
   try {
     ctx.user = await api.get('/api/auth/me');
   } catch {
@@ -172,6 +232,16 @@ async function boot() {
   if (ctx.user.debe_cambiar_clave) cambiarClave(true);
 }
 
-window.addEventListener('hashchange', route);
+// Registro de errores del navegador (máximo 5 por sesión de página)
+let errEnviados = 0;
+function reportarError(mensaje, detalle) {
+  if (!ctx.user || errEnviados >= 5) return;
+  errEnviados++;
+  fetch('/api/errores/cliente', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+    body: JSON.stringify({ mensaje: String(mensaje).slice(0, 500), detalle: String(detalle || '').slice(0, 2000), ruta: location.hash, agente: navigator.userAgent }) }).catch(() => {});
+}
+window.addEventListener('error', (e) => reportarError(e.message, e.error && e.error.stack));
+window.addEventListener('unhandledrejection', (e) => { const r = e.reason || {}; if (r.status) return; reportarError(r.message || r, r.stack); });
+window.addEventListener('hashchange', () => { if (/^#\/restablecer/.test(location.hash)) boot(); else route(); });
 window.addEventListener('sigpi:logout', () => { if (ctx.user) { ctx.user = null; toast('Tu sesión expiró. Vuelve a ingresar.', true); renderLogin(); } });
 boot();

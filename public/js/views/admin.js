@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { ctx } from '../app.js';
-import { esc, $, $$, fDateTime, relTime, badge, icon, modal, formData, run, toast, confirmar, options, initials } from '../ui.js';
+import { esc, $, $$, fDateTime, relTime, badge, icon, modal, formData, run, toast, confirmar, options, initials, parseCSV } from '../ui.js';
 
 let tab = 'usuarios';
 
@@ -33,7 +33,7 @@ async function usuarios(el, refresh) {
   const R = ctx.cat.roles;
   el.innerHTML = `
     <div class="filters"><input class="search" id="q" placeholder="Buscar funcionario…"><span class="small faint">${rows.filter((u) => u.activo).length} activos</span>
-      <div class="right"><button class="btn sm primary" id="nuevo">${icon('plus')}Nuevo usuario</button></div></div>
+      <div class="right row" style="gap:8px"><button class="btn sm" id="importar">${icon('upload')}Importar CSV</button><button class="btn sm primary" id="nuevo">${icon('plus')}Nuevo usuario</button></div></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Funcionario</th><th>Rol</th><th>Área</th><th>Último acceso</th><th></th></tr></thead>
       <tbody>${rows.map((u) => `<tr data-q="${esc((u.nombre + ' ' + u.email).toLowerCase())}" style="${u.activo ? '' : 'opacity:.5'}">
@@ -45,6 +45,7 @@ async function usuarios(el, refresh) {
       </tr>`).join('')}</tbody></table></div>`;
   $('#q', el).addEventListener('input', (e) => { const q = e.target.value.toLowerCase(); $$('tr[data-q]', el).forEach((tr) => { tr.hidden = !tr.dataset.q.includes(q); }); });
   $('#nuevo', el).addEventListener('click', () => usuarioForm(null, refresh));
+  $('#importar', el).addEventListener('click', () => importarUsuarios(refresh));
   $$('[data-edit]', el).forEach((b) => b.addEventListener('click', () => usuarioForm(rows.find((u) => u.id === Number(b.dataset.edit)), refresh)));
   $$('[data-reset]', el).forEach((b) => b.addEventListener('click', async () => {
     const u = rows.find((x) => x.id === Number(b.dataset.reset));
@@ -52,6 +53,40 @@ async function usuarios(el, refresh) {
     const r = await run(null, () => api.post(`/api/usuarios/${u.id}/restablecer`));
     mostrarClave(u.email, r.clave_temporal);
   }));
+}
+
+function importarUsuarios(refresh) {
+  const ejemplo = 'nombre;email;rol;area;cargo\nAna Pérez Soto;apérez@salesianostalca.cl;coordinador;PED;Jefa UTP\nLuis Rojas;lrojas@salesianostalca.cl;responsable;TP;Docente Electrónica\nMarta Díaz;mdiaz@salesianostalca.cl;usuario;COM;Encargada de Comunicaciones';
+  const m = modal({
+    title: 'Importar usuarios desde CSV',
+    body: `<div class="stack">
+      <p class="muted">Crea de una vez a los funcionarios. Columnas: <code>nombre</code>, <code>email</code>, <code>rol</code>, <code>area</code> (sigla o nombre) y <code>cargo</code>. El rol puede ser <code>rectoria</code>, <code>encargado_pme</code>, <code>coordinador</code>, <code>responsable</code> o <code>usuario</code>. Cada persona recibe una contraseña temporal que debe cambiar al ingresar.</p>
+      <pre class="card card-pad mono small" style="overflow:auto;margin:0;white-space:pre">${esc(ejemplo)}</pre>
+      <div class="row"><a class="btn sm" id="plantilla" download="plantilla_usuarios_sigpi.csv">${icon('download')}Descargar plantilla</a></div>
+      <label class="f">Archivo CSV<input type="file" id="csv" accept=".csv,text/csv"></label>
+      <div id="prev"></div>
+    </div>`,
+    foot: '<button class="btn" data-close>Cerrar</button><button class="btn primary" id="go" disabled>Importar</button>',
+  });
+  $('#plantilla', m.el).href = URL.createObjectURL(new Blob(['\uFEFF' + ejemplo.replace('apérez', 'aperez')], { type: 'text/csv' }));
+  let filas = [];
+  $('#csv', m.el).addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const rows = parseCSV(await f.text());
+    const head = rows[0].map((h) => h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    filas = rows.slice(1).map((r) => Object.fromEntries(head.map((h, i) => [h === 'correo' ? 'email' : h, (r[i] || '').trim()])));
+    $('#prev', m.el).innerHTML = `<div class="notice">${filas.length} funcionarios detectados.</div>`;
+    $('#go', m.el).disabled = !filas.length;
+  });
+  $('#go', m.el).addEventListener('click', async (e) => {
+    const r = await run(e.currentTarget, () => api.post('/api/usuarios/importar', { filas }));
+    $('#go', m.el).disabled = true;
+    await ctx.loadCat(); refresh();
+    const csv = '\uFEFFnombre;email;rol;area;clave_temporal\r\n' + r.creados.map((u) => [u.nombre, u.email, u.rol, u.area, u.clave_temporal].join(';')).join('\r\n');
+    $('#prev', m.el).innerHTML = `<div class="notice ${r.errores.length ? 'warn' : ''}"><b>${r.creados.length} usuarios creados.</b>${r.errores.length ? `<br>${r.errores.length} filas con error:<br>${r.errores.slice(0, 20).map((x) => `Fila ${x.fila}: ${esc(x.error)}`).join('<br>')}` : ''}</div>
+      ${r.creados.length ? `<div class="notice warn" style="margin-top:10px">Descarga ahora las contraseñas temporales: no se vuelven a mostrar. Entrégalas por un canal seguro y elimina el archivo después.</div>
+      <div class="row" style="margin-top:10px"><a class="btn primary sm" download="claves_temporales_sigpi.csv" href="${URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))}">${icon('download')}Descargar claves temporales</a></div>` : ''}`;
+  });
 }
 
 function mostrarClave(email, clave) {

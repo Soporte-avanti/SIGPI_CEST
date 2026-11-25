@@ -9,7 +9,7 @@ Sistema Integral de Gestión Preventiva e Inteligencia Institucional del Centro 
 | 3. Evidencias y documentación | Archivos (hasta 4 MB) o enlaces a Drive/OneDrive, asociados a la acción o a un avance |
 | 4. Indicadores y reportabilidad | **Tablero de control** + **Indicadores (KPI)** con los 7 indicadores de la Tabla 19, fichas técnicas, metas, línea base, cortes y exportación CSV |
 
-Además incluye **Capacitación** (convocatoria y asistencia, que alimenta el KPI 7), **Usuarios y catálogos** (roles, áreas, objetivos) y una **Bitácora** que deja registro de cada operación.
+Además incluye **Capacitación** (convocatoria y asistencia, que alimenta el KPI 7), **Usuarios y catálogos** (roles, áreas, objetivos, importación de usuarios por CSV), **Reporte por área** imprimible, **Ayuda** con el instructivo de cada perfil, **Sistema** (avisos por correo, respaldo y registro de errores) y una **Bitácora** que deja registro de cada operación.
 
 **Tecnología:** Node.js + Express, PostgreSQL (Neon) y un frontend sin compilación (HTML, CSS y JS nativos). Todo vive en un solo servicio.
 
@@ -63,6 +63,48 @@ git push -u origin main
 5. Registra la jornada de inducción en **Capacitación**.
 6. Cuando el piloto tenga datos representativos, ve a **Indicadores → Registrar corte → Línea base**. Recién entonces define las metas, tal como indica la sección 33.8.
 
+## Variables de entorno
+
+| Variable | Obligatoria | Para qué sirve |
+|---|---|---|
+| `DATABASE_URL` | Sí | Conexión a Neon |
+| `JWT_SECRET` | Sí | Firma de las sesiones |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Sí (primera vez) | Primer administrador cuando la base está vacía |
+| `NODE_ENV` | Sí en producción | `production`: la cookie de sesión viaja solo por HTTPS |
+| `RESEND_API_KEY`, `MAIL_FROM` | No | Habilitan los avisos por correo y la recuperación de contraseña |
+| `APP_URL` | No | Dirección pública usada en los enlaces de los correos |
+| `CRON_SECRET` | No | Protege la tarea programada de avisos |
+| `MAX_UPLOAD_MB` | No | Límite de las evidencias (4 por defecto) |
+| `TZ_INSTITUCION` | No | Zona horaria para calcular "hoy" (`America/Santiago`) |
+
+Sin las variables de correo, el sistema funciona igual: los avisos no se envían y las contraseñas olvidadas las restablece un administrador.
+
+## Avisos por correo
+
+1. Crea una cuenta en [resend.com](https://resend.com), verifica el dominio del remitente y genera una API key.
+2. En Vercel agrega `RESEND_API_KEY`, `MAIL_FROM` (por ejemplo `SIGPI <sigpi@salesianostalca.cl>`), `APP_URL` y `CRON_SECRET` (un texto aleatorio). Luego haz Redeploy.
+3. La tarea programada de `vercel.json` corre los **lunes y jueves a las 11:00 UTC** (8:00 en horario de verano de Chile). Cada persona recibe como máximo un aviso al día y puede desactivarlos desde su cuenta.
+4. En **Sistema → Ver a quién le llegaría hoy** se revisa el contenido antes de enviar.
+
+En Render, que no tiene tareas programadas gratuitas, usa un servicio externo como cron-job.org para llamar a `https://TU-APP/api/cron/avisos?token=CRON_SECRET`.
+
+## Respaldo y restauración
+
+```bash
+npm run respaldo                                     # crea respaldos/sigpi_AAAA-MM-DD_HHMM.json con todo, archivos incluidos
+npm run restaurar -- respaldos/archivo.json --si     # REEMPLAZA la base de DATABASE_URL con el respaldo
+```
+
+El administrador también puede descargar un respaldo desde **Sistema → Respaldo**. Si las evidencias superan 3 MB, esa descarga las omite por el límite de Vercel; para un respaldo completo usa `npm run respaldo`. Los respaldos contienen datos personales: guárdalos en un lugar seguro. La carpeta `respaldos/` no se sube a GitHub.
+
+## Pruebas automáticas
+
+```bash
+TEST_DATABASE_URL="postgresql://...rama-test..." npm test
+```
+
+Cubren el ingreso, la importación de usuarios, los permisos, la zona horaria, el flujo de reporte, validación y cierre, las evidencias, la invalidación de sesiones al cambiar la contraseña, la tarea programada y el respaldo. **La base de prueba se borra completa**: crea en Neon una rama `test` solo para esto.
+
 ## Roles
 
 | Rol | Alcance |
@@ -80,6 +122,8 @@ Nadie puede validar un registro que ingresó él mismo, salvo el administrador.
 npm install
 cp .env.example .env    # completa DATABASE_URL (puede ser la misma de Neon o un PostgreSQL local)
 npm run seed:demo       # opcional: datos de prueba (usuarios @demo.cl, clave Demo.2026)
+npm run reset -- --si   # borra todo y deja la base vacía con el administrador
+npm run reset:demo      # borra todo y carga los datos de demostración
 npm run dev             # http://localhost:3000
 ```
 

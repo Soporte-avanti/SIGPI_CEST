@@ -21,6 +21,12 @@ const pool = new Pool({
 
 const query = (text, params) => pool.query(text, params);
 
+// Zona horaria institucional: "hoy" se calcula en hora de Chile, no en UTC
+const TZ = process.env.TZ_INSTITUCION || 'America/Santiago';
+if (!/^[A-Za-z_]+\/[A-Za-z_]+$/.test(TZ)) throw new Error('TZ_INSTITUCION inválida');
+const HOY = `(now() AT TIME ZONE '${TZ}')::date`;
+const hoyISO = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
+
 async function tx(fn) {
   const client = await pool.connect();
   try {
@@ -99,4 +105,15 @@ async function audit(usuarioId, evento, entidad, entidadId, detalle) {
   }
 }
 
-module.exports = { pool, query, tx, init, audit };
+async function registrarError({ origen = 'servidor', metodo, ruta, mensaje, detalle, usuarioId }) {
+  try {
+    await query('INSERT INTO errores (origen, metodo, ruta, mensaje, detalle, usuario_id) VALUES ($1,$2,$3,$4,$5,$6)',
+      [origen, metodo || null, String(ruta || '').slice(0, 300), String(mensaje || 'Error').slice(0, 1000), detalle ? String(detalle).slice(0, 4000) : null, usuarioId || null]);
+    // Conserva solo los últimos 2000 errores
+    await query('DELETE FROM errores WHERE id < (SELECT COALESCE(max(id),0) - 2000 FROM errores)');
+  } catch (e) {
+    console.error('[SIGPI] No se pudo registrar el error:', e.message);
+  }
+}
+
+module.exports = { pool, query, tx, init, audit, registrarError, HOY, hoyISO, TZ };

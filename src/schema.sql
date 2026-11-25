@@ -155,3 +155,42 @@ CREATE INDEX IF NOT EXISTS idx_avances_accion ON avances(accion_id);
 CREATE INDEX IF NOT EXISTS idx_avances_validacion ON avances(validacion);
 CREATE INDEX IF NOT EXISTS idx_evidencias_accion ON evidencias(accion_id);
 CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON auditoria(fecha DESC);
+
+-- ===== v1.1 =====
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS recibe_avisos BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave_cambiada TIMESTAMPTZ;
+
+-- Errores del servidor y del navegador, para diagnóstico
+CREATE TABLE IF NOT EXISTS errores (
+  id          BIGSERIAL PRIMARY KEY,
+  origen      TEXT NOT NULL DEFAULT 'servidor' CHECK (origen IN ('servidor','navegador')),
+  metodo      TEXT,
+  ruta        TEXT,
+  mensaje     TEXT NOT NULL,
+  detalle     TEXT,
+  usuario_id  INT REFERENCES usuarios(id) ON DELETE SET NULL,
+  fecha       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_errores_fecha ON errores(fecha DESC);
+
+-- Recuperación de contraseña por correo (se guarda solo el hash del token)
+CREATE TABLE IF NOT EXISTS tokens_clave (
+  token_hash  TEXT PRIMARY KEY,
+  usuario_id  INT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  expira      TIMESTAMPTZ NOT NULL,
+  usado       BOOLEAN NOT NULL DEFAULT FALSE,
+  creado      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Registro de avisos enviados por correo
+CREATE TABLE IF NOT EXISTS avisos_enviados (
+  id          BIGSERIAL PRIMARY KEY,
+  usuario_id  INT REFERENCES usuarios(id) ON DELETE SET NULL,
+  email       TEXT NOT NULL,
+  asunto      TEXT NOT NULL,
+  items       INT NOT NULL DEFAULT 0,
+  estado      TEXT NOT NULL,
+  detalle     TEXT,
+  fecha       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_avisos_fecha ON avisos_enviados(fecha DESC);

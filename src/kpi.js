@@ -1,4 +1,4 @@
-const { query } = require('./db');
+const { query, HOY } = require('./db');
 
 // Fichas técnicas de los indicadores (sección 33.8, Tabla 19)
 const FICHAS = [
@@ -62,12 +62,12 @@ async function calcular({ areaId = null, soloPiloto = false } = {}) {
       count(*) FILTER (WHERE a.cerrada OR (a.ultima_actualizacion IS NOT NULL
                        AND a.ultima_actualizacion >= now() - make_interval(days => a.periodicidad_dias)))::int AS actualizadas,
       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM evidencias e WHERE e.accion_id = a.id))::int AS con_evidencia,
-      count(*) FILTER (WHERE a.estado = 'completada' OR (a.fecha_termino IS NOT NULL AND a.fecha_termino <= current_date))::int AS programadas,
+      count(*) FILTER (WHERE a.estado = 'completada' OR (a.fecha_termino IS NOT NULL AND a.fecha_termino <= ${HOY}))::int AS programadas,
       count(*) FILTER (WHERE a.estado = 'completada')::int AS ejecutadas,
       count(*) FILTER (WHERE a.estado = 'completada' AND a.fecha_cierre IS NOT NULL
                        AND (a.fecha_termino IS NULL OR a.fecha_cierre <= a.fecha_termino))::int AS en_plazo,
       count(*) FILTER (WHERE NOT a.cerrada AND a.estado <> 'completada'
-                       AND a.fecha_termino < current_date)::int AS atrasadas,
+                       AND a.fecha_termino < ${HOY})::int AS atrasadas,
       count(*) FILTER (WHERE a.estado = 'en_curso')::int AS en_curso,
       count(*) FILTER (WHERE a.estado = 'no_iniciada')::int AS no_iniciadas,
       COALESCE(round(avg(a.porcentaje)),0)::int AS avance_promedio

@@ -11,7 +11,7 @@ if (!process.argv.includes('--si')) {
 }
 
 const host = (process.env.DATABASE_URL || '').split('@')[1]?.split('/')[0] || '(sin DATABASE_URL)';
-const TABLAS = ['auditoria', 'kpi_cortes', 'kpi_metas', 'capacitacion_convocados', 'capacitaciones', 'evidencias',
+const TABLAS = ['errores', 'tokens_clave', 'avisos_enviados', 'auditoria', 'kpi_cortes', 'kpi_metas', 'capacitacion_convocados', 'capacitaciones', 'evidencias',
   'avances', 'accion_colaboradoras', 'acciones', 'usuarios', 'objetivos', 'dimensiones', 'areas'];
 
 (async () => {

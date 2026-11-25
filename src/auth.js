@@ -38,12 +38,14 @@ async function requireAuth(req, res, next) {
   try {
     const token = req.cookies[COOKIE];
     if (!token) return res.status(401).json({ error: 'Sesión no iniciada' });
-    const { id } = jwt.verify(token, SECRET);
+    const { id, iat } = jwt.verify(token, SECRET);
     const { rows } = await query(
-      `SELECT u.id, u.nombre, u.email, u.rol, u.area_id, u.cargo, u.debe_cambiar_clave, a.nombre AS area
+      `SELECT u.id, u.nombre, u.email, u.rol, u.area_id, u.cargo, u.debe_cambiar_clave, u.recibe_avisos, u.clave_cambiada, a.nombre AS area
          FROM usuarios u LEFT JOIN areas a ON a.id = u.area_id
         WHERE u.id = $1 AND u.activo`, [id]);
     if (!rows[0]) return res.status(401).json({ error: 'Usuario no válido o desactivado' });
+    // Una sesión iniciada antes de un cambio de contraseña deja de valer
+    if (rows[0].clave_cambiada && iat * 1000 < new Date(rows[0].clave_cambiada).getTime() - 2000) return res.status(401).json({ error: 'Tu contraseña cambió. Vuelve a ingresar.' });
     req.user = rows[0];
     next();
   } catch {
